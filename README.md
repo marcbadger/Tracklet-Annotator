@@ -164,6 +164,6 @@ git rebase upstream/<main/master>
 Push your new branch to the remote version of your/our repo
 ```git push -u origin <your-branch-name-here>```
 
-Now go online and create a pull request from <your-branch-name-here> to base:<multi-view>!
+Now go online and create a pull request from ```<your-branch-name-here>``` to ```base:<multi-view>```!
 
 
