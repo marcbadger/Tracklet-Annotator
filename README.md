@@ -158,11 +158,12 @@ Later, you might have another sub-task to commit
 After your update is complete, add new GUI tests so we will know if a future change breaks your feature and **go through all existing GUI tests** to make sure your new feature is working and hasn't broken something else. Finally, you can pull any changes that occurred on the upstream main branch into the local version of the upstream main branch, and then "rebase" your new feature branch on those changes (this makes it look like you just did the fork).
 ```bash
 git pull upstream <main/master>
-git checkout <main/master>
 git rebase upstream/<main/master>
 ```
 
-Push your new main branch back to the remote version of your repo
-```git push origin <your-branch-name-here>```
+Push your new branch to the remote version of your/our repo
+```git push -u origin <your-branch-name-here>```
+
+Now go online and create a pull request from <your-branch-name-here> to base:<multi-view>!
 
 
