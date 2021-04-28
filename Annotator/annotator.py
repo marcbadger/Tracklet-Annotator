@@ -18,19 +18,30 @@ from Annotator.instance import Instance
 from Annotator.colors import ColorSetter
 from Annotator.videoPlayer import *
 from Annotator.barId import barId
+import Annotator.panels as panels
 
 from multiprocessing.pool import ThreadPool
 
 class Annotator():
+    """A class for single-view tracklet annotation.
+    
+    This class draws the GUI and handles all events and data modifications for its current view.
 
-    # You can get the timing of each component using:
-    #   python -m cProfile -s 'cumtime' -m Annotator
+    You can get the timing of each component using:
+    python -m cProfile -s 'cumtime' -m Annotator
+
+    Attributes:
+        currently_a_billion: TODO
+
+    """
 
 
-    def __init__(self):
+    def __init__(self, start_dir):
 
         threadn = cv2.getNumberOfCPUs()
         self.pool = ThreadPool(processes = max([1, threadn - 2]))
+
+        self.start_dir = start_dir
 
         # Instance Variables
         # DISPLAY
@@ -59,7 +70,7 @@ class Annotator():
         self.bar_id_bottom = None
         self.topLevelOpen = False
 
-    # Display
+        # Display
         # WINDOW
         self.window = Tk()
         self.window.title("Tracklet Annotator")
@@ -72,13 +83,13 @@ class Annotator():
 
         self.resetVariables()
 
-        col_leftPanel = '#bebfc1'
-        col_main = '#bebfc1'
+        self.col_leftPanel = '#bebfc1'
+        self.col_main = '#bebfc1'
         self.col_light = '#F0F0F0'
 
         # BASE
-        self.canvas = Canvas(master=self.window, width=self.width, height=self.height, relief='flat', bg=col_main, highlightthickness=0)
-        self.frm_main = tk.Frame(master=self.canvas, bg=col_main)
+        self.canvas = Canvas(master=self.window, width=self.width, height=self.height, relief='flat', bg=self.col_main, highlightthickness=0)
+        self.frm_main = tk.Frame(master=self.canvas, bg=self.col_main)
         self.frm_main.grid_columnconfigure(0, weight=1)
         self.frm_main.grid_rowconfigure(2, minsize=self.playBar_height)
         self.frm_leftPanel = tk.Frame(master=self.canvas, border=7)
@@ -89,74 +100,45 @@ class Annotator():
         self.canvas.grid_columnconfigure(1, weight=1, minsize=self.width - self.leftPanelWidth)
 
         # LEFT PANEL
+        lbl_editorHeader = tk.Label(master=self.frm_leftPanel, text="Tracklet Editor", bg=self.col_leftPanel, width=int(self.leftPanelWidth / 10))
+        lbl_editorHeader.grid(sticky=N + W, row=0, column=0)
+
         # Edit Boxes
-        self.frm_editor = tk.Frame(master=self.frm_leftPanel)
-        self.lbl_editorHeader = tk.Label(master=self.frm_editor, text="Tracklet Editor", bg=col_leftPanel, width=int(self.leftPanelWidth / 10))
-        self.btn_newBox = tk.Button(master=self.frm_editor, text="Create new box", command=self.newBox)
-        self.btn_deleteBox = tk.Button(master=self.frm_editor, text="Delete box", command=self.deleteBox)
-        self.btn_redrawBox = tk.Button(master=self.frm_editor, text="Redraw box", command=self.redrawBox)
-        self.btn_cancel = tk.Button(master=self.frm_editor, text="Cancel", command=self.esc)
-        self.lbl_editorHeader.grid(sticky=N + W, row=0, column=0)
-        self.btn_newBox.grid(sticky=S + W, row=1, column=0)
-        self.btn_deleteBox.grid(sticky=S + W, row=2, column=0)
-        self.btn_redrawBox.grid(sticky=S + W, row=3, column=0)
-        self.btn_cancel.grid(sticky=S + W, row=4, column=0)
-        # Edit Labels
-        self.frm_labeler = tk.Frame(master=self.frm_leftPanel)
-        self.lbl_labelerHeader = tk.Label(master=self.frm_labeler, text="Identity Editor", bg=col_leftPanel, width=int(self.leftPanelWidth / 10))
-        self.btn_swapId = tk.Button(master=self.frm_labeler, text="Swap track IDs", command=self.changeId)
-        self.btn_mergeId = tk.Button(master=self.frm_labeler, text="Merge tracks into one ID", command=self.mergeId)
-        self.btn_uniteId = tk.Button(master=self.frm_labeler, text="Unite boxes into one ID", command=self.uniteId)
-        self.btn_deleteId = tk.Button(master=self.frm_labeler, text="Delete track and ID", command=self.deleteId)
-        self.btn_nameId = tk.Button(master=self.frm_labeler, text="Customize ID name/color", command=self.nameId)
-        self.lbl_labelerHeader.grid(sticky=N + W, row=0, column=0)
-        self.btn_swapId.grid(sticky=S + W, row=1, column=0)
-        self.btn_mergeId.grid(sticky=S + W, row=2, column=0)
-        self.btn_uniteId.grid(sticky=S + W, row=3, column=0)
-        self.btn_deleteId.grid(sticky=S + W, row=4, column=0)
-        self.btn_nameId.grid(sticky=S + W, row=5, column=0)
-        # Identity Panel
-        self.frm_identities = tk.Frame(master=self.frm_leftPanel, bg=col_leftPanel)
-        self.lbl_allidheader = tk.Label(master=self.frm_identities, text=" All Identities", bg=col_leftPanel)
-        self.btn_newId = tk.Button(master=self.frm_identities, text="New ID", command=self.newId, highlightbackground=col_leftPanel, border=3)
-        self.list_ids = tk.Listbox(master=self.frm_identities, borderwidth=6, relief="flat", height=int(
-            1.8 * self.leftPanelHeight_Row1), bg=self.col_light, selectforeground="blue", selectbackground=col_main, activestyle="underline")
-        self.lbl_allidheader.grid(sticky=W + E, row=0, column=0)
-        self.btn_newId.grid(sticky=N + E, row=0, column=1)
-        self.list_ids.grid(sticky=N + W, row=1, column=0, columnspan=2)
-        # Checkboxes and commit
-        self.frm_checkboxes = tk.Frame(master=self.frm_leftPanel)
-        self.ckb_prev = tk.Checkbutton(master=self.frm_editor, text="Show previous boxes", variable=self.p, command=self.showPrev)
-        self.ckb_next = tk.Checkbutton(master=self.frm_editor, text="Show next boxes", variable=self.n, command=self.showNext)
-        self.btn_commit = tk.Button(master=self.frm_checkboxes, text="Commit Edits", command=self.commitEdits)
-        self.btn_reload = tk.Button(master=self.frm_checkboxes, text="Commit and Reload", command=self.commitReload)
-        self.ckb_prev.grid(sticky=S + W, row=5, column=0)
-        self.ckb_next.grid(sticky=S + W, row=6, column=0)
-        self.frm_editor.grid_rowconfigure(5, minsize=30)
-        self.btn_commit.grid(sticky=S + W, row=2, column=0)
-        self.btn_reload.grid(sticky=S + W, row=3, column=0)
-        # Place
-        self.frm_editor.grid(sticky=N + W, row=0, column=0)
-        self.frm_labeler.grid(sticky=N + W, row=1, column=0)
-        self.frm_identities.grid(sticky=N + W, row=2, column=0)
-        self.frm_checkboxes.grid(sticky=S + W, row=3, column=0)
+        frm_editor = panels.BoxEditor(self, master=self.frm_leftPanel)
+        frm_editor.grid_rowconfigure(5, minsize=30)
+        frm_editor.grid(sticky=N + W, row=1, column=0)
+
+        # Edit Identities
+        frm_labeler = panels.IdentityEditor(self, master=self.frm_leftPanel)
+        frm_labeler.grid(sticky=N + W, row=2, column=0)
+
+        # Identity Panel, list_ids are needed later so we save a pointer
+        self.idp = panels.IdentityPanel(self, master=self.frm_leftPanel, bg=self.col_leftPanel)
+        self.idp.grid(sticky=N + W, row=3, column=0)
+        
+        # Commit and Reload
+        frm_commit = panels.CommitPanel(self, master=self.frm_leftPanel)
+        frm_commit.grid(sticky=S + W, row=4, column=0)
+        
+        # Place left panel
         self.frm_leftPanel.grid_rowconfigure(0, minsize=self.leftPanelHeight_Editor)
         self.frm_leftPanel.grid_rowconfigure(1, minsize=self.leftPanelHeight_Labeler)
 
+
         # MAIN FRAME
         # Header
-        self.frm_toolbar = tk.Frame(master=self.frm_main, bg=col_main)
-        self.btn_open = tk.Button(master=self.frm_toolbar, text="Open Directory", command=self.openDir, highlightbackground=col_main, borderwidth=6)
-        self.btn_setTime = tk.Button(master=self.frm_toolbar, text="Set Frame/Time", command=self.setTime, highlightbackground=col_main, borderwidth=6)
-        self.lbl_fileLoaded = tk.Label(master=self.frm_toolbar, text="  No file loaded", bg=col_main, font=(None, 10))
-        self.lbl_fileFrames = tk.Label(master=self.frm_toolbar, text="  Total frames: ", bg=col_main, font=(None, 10))
+        self.frm_toolbar = tk.Frame(master=self.frm_main, bg=self.col_main)
+        self.btn_open = tk.Button(master=self.frm_toolbar, text="Open Directory", command=self.openDir, highlightbackground=self.col_main, borderwidth=6)
+        self.btn_setTime = tk.Button(master=self.frm_toolbar, text="Set Frame/Time", command=self.setTime, highlightbackground=self.col_main, borderwidth=6)
+        self.lbl_fileLoaded = tk.Label(master=self.frm_toolbar, text="  No file loaded", bg=self.col_main, font=(None, 10))
+        self.lbl_fileFrames = tk.Label(master=self.frm_toolbar, text="  Total frames: ", bg=self.col_main, font=(None, 10))
         self.btn_open.grid(row=0, column=0, sticky=SW)
         self.lbl_fileLoaded.grid(row=1, column=0, sticky=NW)
         self.lbl_fileFrames.grid(row=2, column=0, sticky=NW)
         # Play Btns
-        self.btn_next = tk.Button(master=self.frm_toolbar, text="Next Frame", command=self.btn_next, highlightbackground=col_main)
-        self.btn_prev = tk.Button(master=self.frm_toolbar, text="Prev Frame", command=self.btn_prev, highlightbackground=col_main)
-        self.btn_start = tk.Button(master=self.frm_toolbar, text="Start", command=self.playBtn, highlightbackground=col_main)
+        self.btn_next = tk.Button(master=self.frm_toolbar, text="Next Frame", command=self.btn_next, highlightbackground=self.col_main)
+        self.btn_prev = tk.Button(master=self.frm_toolbar, text="Prev Frame", command=self.btn_prev, highlightbackground=self.col_main)
+        self.btn_start = tk.Button(master=self.frm_toolbar, text="Start", command=self.playBtn, highlightbackground=self.col_main)
         self.btn_next.grid(row=0, column=1, sticky=SE)
         self.btn_prev.grid(row=1, column=1, sticky=NE)
         self.btn_start.grid(row=2, column=1, sticky=NE)
@@ -165,10 +147,10 @@ class Annotator():
             self.dialog_width / 8), fg="black", bg=self.col_light, activestyle="none", font="Courier 11", selectforeground="blue", selectbackground=self.col_light)
         self.list_dialog.grid(row=0, column=2, rowspan=3, sticky=NE)
         # Image
-        self.cvs_image = tk.Canvas(master=self.frm_main, width=self.width, height=self.height - 160, bg=col_main, highlightthickness=0, border=6)
+        self.cvs_image = tk.Canvas(master=self.frm_main, width=self.width, height=self.height - 160, bg=self.col_main, highlightthickness=0, border=6)
         # Play Bar
         self.cvs_playBar = tk.Canvas(master=self.frm_main, width=self.width - self.leftPanelWidth,
-                                     height=self.playBar_height, bg=col_main, highlightthickness=0, border=3)
+                                     height=self.playBar_height, bg=self.col_main, highlightthickness=0, border=3)
         # Place
         self.frm_toolbar.grid_columnconfigure(0, minsize=300)
         self.frm_toolbar.grid_columnconfigure(1, minsize=100)
@@ -195,12 +177,13 @@ class Annotator():
         self.cvs_image.bind("<ButtonRelease-1>", self.release)
 
         # IDENTITIES
-        self.list_ids.bind('<<ListboxSelect>>', self.clickId)
+        self.idp.list_ids.bind('<<ListboxSelect>>', self.clickId)
         self.list_dialog.bind('<<ListboxSelect>>', self.doNothing)
 
         self.resetEditor()
         self.resetActions()
         self.canvas.pack()
+
         self.window.mainloop()
 
     def resetVariables(self):
@@ -257,8 +240,8 @@ class Annotator():
         self.lastSelectedId = None
         self.prev_on = False
         self.next_on = False
-        self.showPrev()
-        self.showNext()
+        # self.showPrev()
+        # self.showNext()
 
     def resetActions(self):
         for i in self.curr.instances.keys():
@@ -355,38 +338,38 @@ class Annotator():
 
         time.sleep(.01)
 
-    def showPrev(self):
-        if self.prev_on:
-            self.prev_on = False
-            if self.curr.frameNum - 1 >= 1:
-                for id in self.frames[self.curr.frameNum - 1].instances.keys():
-                    box = self.allInstances[id].boxes[self.curr.frameNum - 1]
-                    self.boxes_prev[id] = self.cvs_image.create_rectangle(
-                        box['x1'], box['y1'], box['x2'], box['y2'], outline=str(box['color']), width=1)
-                    self.list_ids.itemconfig(self.allInstances[id].index, fg='red')
-        else:
-            self.prev_on = True
-            self.p = 1
-            for id in self.boxes_prev.keys():
-                self.cvs_image.delete(self.boxes_prev[id])
-                self.list_ids.itemconfig(self.allInstances[id].index, fg='black')
-            self.boxes_prev = {}
+    # def showPrev(self):
+    #     if self.prev_on:
+    #         self.prev_on = False
+    #         if self.curr.frameNum - 1 >= 1:
+    #             for id in self.frames[self.curr.frameNum - 1].instances.keys():
+    #                 box = self.allInstances[id].boxes[self.curr.frameNum - 1]
+    #                 self.boxes_prev[id] = self.cvs_image.create_rectangle(
+    #                     box['x1'], box['y1'], box['x2'], box['y2'], outline=str(box['color']), width=1)
+    #                 self.idp.list_ids.itemconfig(self.allInstances[id].index, fg='red')
+    #     else:
+    #         self.prev_on = True
+    #         self.p = 1
+    #         for id in self.boxes_prev.keys():
+    #             self.cvs_image.delete(self.boxes_prev[id])
+    #             self.idp.list_ids.itemconfig(self.allInstances[id].index, fg='black')
+    #         self.boxes_prev = {}
 
-    def showNext(self):
-        if self.next_on:
-            self.next_on = False
-            if self.curr.frameNum + 1 < len(self.frames):
-                for id in self.frames[self.curr.frameNum + 1].instances.keys():
-                    box = self.allInstances[id].boxes[self.curr.frameNum + 1]
-                    self.boxes_next[id] = self.cvs_image.create_rectangle(
-                        box['x1'], box['y1'], box['x2'], box['y2'], outline=str(box['color']), width=1)
-                    self.list_ids.itemconfig(self.allInstances[id].index, fg='green')
-        else:
-            self.next_on = True
-            for id in self.boxes_next.keys():
-                self.cvs_image.delete(self.boxes_next[id])
-                self.list_ids.itemconfig(self.allInstances[id].index, fg='black')
-            self.boxes_next = {}
+    # def showNext(self):
+    #     if self.next_on:
+    #         self.next_on = False
+    #         if self.curr.frameNum + 1 < len(self.frames):
+    #             for id in self.frames[self.curr.frameNum + 1].instances.keys():
+    #                 box = self.allInstances[id].boxes[self.curr.frameNum + 1]
+    #                 self.boxes_next[id] = self.cvs_image.create_rectangle(
+    #                     box['x1'], box['y1'], box['x2'], box['y2'], outline=str(box['color']), width=1)
+    #                 self.idp.list_ids.itemconfig(self.allInstances[id].index, fg='green')
+    #     else:
+    #         self.next_on = True
+    #         for id in self.boxes_next.keys():
+    #             self.cvs_image.delete(self.boxes_next[id])
+    #             self.idp.list_ids.itemconfig(self.allInstances[id].index, fg='black')
+    #         self.boxes_next = {}
 
     # LEFT PANEL BUTTONS
     def resetFunc(self):
@@ -490,11 +473,11 @@ class Annotator():
             else:
                 name = col
             cname = False
-        index = self.list_ids.size()
-        self.list_ids.insert(END, str(a_id) + "   " + name)
+        index = self.idp.list_ids.size()
+        self.idp.list_ids.insert(END, str(a_id) + "   " + name)
         self.i = Instance(a_id, index, col, name, ccolor, cname)
         self.allInstances[a_id] = self.i
-        self.list_ids.yview(END)
+        self.idp.list_ids.yview(END)
 
     def doNothing(self, event):
         pass
@@ -705,8 +688,8 @@ class Annotator():
         if (id.customName and id.name != newName) or (not id.customName and newName != col):
             id.name = newName
             id.customName = True
-            self.list_ids.delete(id.index)
-            self.list_ids.insert(id.index, str(id.id) + "   " + id.name)
+            self.idp.list_ids.delete(id.index)
+            self.idp.list_ids.insert(id.index, str(id.id) + "   " + id.name)
         self.updateTempFrame(self.curr_id)
         self.curr_id = None
         self.topLevelOpen = False
@@ -805,11 +788,11 @@ class Annotator():
         if self.boxes.get(id) is not None:
             self.cvs_image.delete(self.boxes[id])
             self.boxes.pop(id)
-            self.list_ids.itemconfig(i.index, bg=self.col_light)
+            self.idp.list_ids.itemconfig(i.index, bg=self.col_light)
         if i.boxes.get(num) is not None:
             box = i.boxes[num]
             self.boxes[id] = self.cvs_image.create_rectangle(box['x1'], box['y1'], box['x2'], box['y2'], outline=i.color, width=3)
-            self.list_ids.itemconfig(self.allInstances[id].index, bg=i.color)
+            self.idp.list_ids.itemconfig(self.allInstances[id].index, bg=i.color)
 
         if self.bar_id_top is not None and id == self.bar_id_top.id:
             self.bar_id_top.updateEnds(num)
@@ -879,7 +862,10 @@ class Annotator():
 # OPENING FILE
     # ON LOAD
     def openDir(self):
-        folder = tk.filedialog.askdirectory(title="Select directory with video and text file")
+        if self.start_dir:
+            folder = self.start_dir
+        else:
+            folder = tk.filedialog.askdirectory(title="Select directory with video and text file", initialdir=self.start_dir)
         if folder != "":
             videoFile = None
             for file in os.listdir(folder):
@@ -935,8 +921,8 @@ class Annotator():
         self.resetEditor()
         self.resetVariables()
         self.cvs_image.delete('all')
-        if self.list_ids.size() != 0:
-            self.list_ids.delete('0', 'end')
+        if self.idp.list_ids.size() != 0:
+            self.idp.list_ids.delete('0', 'end')
         self.btn_setTime.grid(row=0, column=0)
         openVideo(self)
 
@@ -1044,7 +1030,7 @@ class Annotator():
         else:
             self.boxes[id] = self.cvs_image.create_rectangle(box['x1'], box['y1'], box['x2'], box['y2'], outline=str(box['color']), width=3)
 
-        self.list_ids.itemconfig(self.allInstances[id].index, bg=box['color'])
+        self.idp.list_ids.itemconfig(self.allInstances[id].index, bg=box['color'])
 
     def delete_unused_boxes(self):
         # now delete the boxes that are no longer needed
@@ -1053,7 +1039,7 @@ class Annotator():
             if id not in self.curr.instances:
                 boxes_to_delete.append(id)
                 self.cvs_image.delete(self.boxes[id])
-                self.list_ids.itemconfig(self.allInstances[id].index, bg=self.col_light)
+                self.idp.list_ids.itemconfig(self.allInstances[id].index, bg=self.col_light)
         for id in boxes_to_delete:
             del self.boxes[id]
 
@@ -1102,10 +1088,10 @@ class Annotator():
             self.list_dialog.itemconfig(last - i, fg="#BEBEBE")
         self.dialogCount = 0
 
-        if not self.next_on:
-            self.showNext()
-        if not self.prev_on:
-            self.showPrev()
+        # if not self.next_on:
+        #     self.showNext()
+        # if not self.prev_on:
+        #     self.showPrev()
 
         for id in self.boxes_next.keys():
             self.cvs_image.delete(self.boxes_next[id])
