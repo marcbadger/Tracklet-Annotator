@@ -164,8 +164,12 @@ class Annotator():
         self.list_dialog = tk.Listbox(master=self.frm_toolbar, borderwidth=6, relief="flat", height=int(self.dialog_height / 7), width=int(
             self.dialog_width / 8), fg="black", bg=self.col_light, activestyle="none", font="Courier 11", selectforeground="blue", selectbackground=self.col_light)
         self.list_dialog.grid(row=0, column=2, rowspan=3, sticky=NE)
-        # Image
+        # Image (with zoom requirements)
         self.cvs_image = tk.Canvas(master=self.frm_main, width=self.width, height=self.height - 160, bg=col_main, highlightthickness=0, border=6)
+        self.cvs_image.update()
+        self.container = self.cvs_image.create_rectangle(0, 0, self.width, self.height, fill="black", width=0)
+        self.imscale = 1.0 # scale for the canvaas image
+        self.delta = 1.3 # zoom magnitude
         # Play Bar
         self.cvs_playBar = tk.Canvas(master=self.frm_main, width=self.width - self.leftPanelWidth,
                                      height=self.playBar_height, bg=col_main, highlightthickness=0, border=3)
@@ -175,6 +179,7 @@ class Annotator():
         self.frm_toolbar.grid_columnconfigure(2, minsize=self.width - 800)
         self.frm_toolbar.grid(row=0, column=0, sticky=N + W + E)
         self.cvs_image.grid(row=1, column=0, sticky=N + W + E)
+        self.cvs_image.update()
         self.cvs_playBar.grid(row=2, column=0, sticky=S + W + E, pady=0)
 
         self.lbl_frameNum = tk.Label(master=self.frm_main, text=" Frame Number: ", font=(None, 10))
@@ -193,6 +198,7 @@ class Annotator():
         self.cvs_image.bind("<ButtonPress-1>", self.click)
         self.cvs_image.bind("<B1-Motion>", self.drag)
         self.cvs_image.bind("<ButtonRelease-1>", self.release)
+        self.cvs_image.bind('<MouseWheel>', self.wheel)  # with Windows and MacOS, but not Linux
 
         # IDENTITIES
         self.list_ids.bind('<<ListboxSelect>>', self.clickId)
@@ -277,6 +283,83 @@ class Annotator():
         self.waitingForClick = False
         self.openingVideo = False
 
+#ZOOM FEATURES
+    def wheel(self, event):
+        #print(event.delta)
+        ''' Zoom with mouse wheel '''
+        x = self.cvs_image.canvasx(event.x)
+        y = self.cvs_image.canvasy(event.y)
+        bbox = self.cvs_image.bbox(self.container)  # get image area
+        if bbox[0] < x < bbox[2] and bbox[1] < y < bbox[3]: pass  # Ok! Inside the image
+        else: return  # zoom only inside image area
+        scale = 1.0
+        # Respond to Linux (event.num) or Windows/MacOS (event.delta) wheel event
+        if event.num == 5 or event.delta == -120 or event.delta == -1:  # scroll down / zoom out
+            i = min(self.width, self.height)
+            if int(i * self.imscale) < 30: return  # image is less than 30 pixels
+            if int(self.imscale) < 1: return
+            self.imscale /= self.delta
+            scale        /= self.delta
+            
+        if event.num == 4 or event.delta == 120 or event.delta == 1:  # scroll up / zoom in
+            i = min(self.cvs_image.winfo_width(), self.cvs_image.winfo_height())
+            if i < self.imscale: return  # 1 pixel is bigger than the visible area
+            #if (self.imscale * self.delta) > 1 or (scale * self.delta) > 1:
+               # self.imscale *= 1.0
+               # scale        *= 1.0
+            #else:
+            self.imscale *= self.delta
+            scale        *= self.delta
+        print(event.delta)
+        print(scale)
+        self.cvs_image.scale('all', x, y, scale, scale)  # rescale all canvas objects
+        self.show_image()
+        
+    def show_image(self, event=None):
+        ''' Show image on the Canvas '''
+        bbox1 = self.cvs_image.bbox(self.container)  # get image area
+        # Remove 1 pixel shift at the sides of the bbox1
+        bbox1 = (bbox1[0] + 1, bbox1[1] + 1, bbox1[2] - 1, bbox1[3] - 1)
+        bbox2 = (self.cvs_image.canvasx(0),  # get visible area of the canvas
+                 self.cvs_image.canvasy(0),
+                 self.cvs_image.canvasx(self.cvs_image.winfo_width()),
+                 self.cvs_image.canvasy(self.cvs_image.winfo_height()))
+        bbox = [min(bbox1[0], bbox2[0]), min(bbox1[1], bbox2[1]),  # get scroll region box
+                max(bbox1[2], bbox2[2]), max(bbox1[3], bbox2[3])]
+        print("bbox1:{}\nbbox2:{}\nbbox:{}\n".format(bbox1,bbox2,bbox))
+
+        if bbox[0] == bbox2[0] and bbox[2] == bbox2[2]:  # whole image in the visible area
+            bbox[0] = bbox1[0]
+            bbox[2] = bbox1[2]
+        if bbox[1] == bbox2[1] and bbox[3] == bbox2[3]:  # whole image in the visible area
+            bbox[1] = bbox1[1]
+            bbox[3] = bbox1[3]
+        self.cvs_image.configure(scrollregion=bbox)  # set scroll region
+        x1 = max(bbox2[0] - bbox1[0], 0)  # get coordinates (x1,y1,x2,y2) of the image tile
+        y1 = max(bbox2[1] - bbox1[1], 0)
+        x2 = min(bbox2[2], bbox1[2]) - bbox1[0]
+        y2 = min(bbox2[3], bbox1[3]) - bbox1[1]
+        #print(int(x2 - x1))
+        #print(int(y2 - y1))
+        if int(x2 - x1) > 0 and int(y2 - y1) > 0:  # show image if it in the visible area
+            x = min(int(x2 / self.imscale), self.width)   # sometimes it is larger on 1 pixel...
+            y = min(int(y2 / self.imscale), self.height)  # ...and sometimes not
+            image = self.image.crop((int(x1 / self.imscale), int(y1 / self.imscale), x, y))
+            self.imagetk = ImageTk.PhotoImage(image.resize((int(x2 - x1), int(y2 - y1))))
+            #imageid = self.canvas.create_image(max(bbox2[0], bbox1[0]), max(bbox2[1], bbox1[1]),
+            #                                   anchor='nw', image=imagetk)
+        if self.displayedImage is None:
+            #make the displayed image reflect the parameters of imageid, where image=imagetk
+            self.displayedImage = self.cvs_image.create_image(max(bbox2[0], bbox1[0]), max(bbox2[1], bbox1[1]),
+                                                                  anchor="nw", image=self.imagetk)
+            print(self.cvs_image.bbox(self.displayedImage))
+        else:
+            #update itemconfig and then self.cvs_image.coords(self.displayedimage, new coordinates which are same as above)
+            self.cvs_image.itemconfig(self.displayedImage, image=self.imagetk)
+            self.cvs_image.coords(self.displayedImage, max(bbox2[0], bbox1[0]), max(bbox2[1], bbox1[1]))
+            self.cvs_image.lower(self.displayedImage)  # set image into background
+            #self.cvs_image.imagetk = imagetk  # keep an extra reference to prevent garbage-collection
+            print(self.cvs_image.bbox(self.displayedImage))
 # EDITOR MODE
 
     def secondForeward(self, event):
@@ -742,10 +825,17 @@ class Annotator():
             self.curr_box = {"x1": 0, "y1": 0, "x2": 0, "y2": 0, "color": self.allInstances[self.curr_id].color}
             self.curr_box['x1'], self.curr_box['y1'] = event.x, event.y
             self.rect = self.cvs_image.create_rectangle(event.x, event.y, event.x, event.y, outline=self.curr_box['color'], width=3)
+        else: 
+            ''' Remember previous coordinates for scrolling with the mouse '''
+            self.cvs_image.scan_mark(event.x, event.y)
 
     def drag(self, event):
         if self.drawing:
             self.cvs_image.coords(self.rect, self.curr_box['x1'], self.curr_box['y1'], event.x, event.y)
+        else:
+            ''' Drag (move) canvas to the new position '''
+            self.cvs_image.scan_dragto(event.x, event.y, gain=1)
+            self.show_image()  # redraw the image
 
     def release(self, event):
         if self.drawing:
@@ -1055,7 +1145,8 @@ class Annotator():
     def update_box(self, id, box):
         # if a box has already been created on the canvas, upadate it
         # otherwise create a new one
-
+        #Part 1: modify box to go from annotator coordinates to zoomed coordinates(for drawing boxes on a new frame thats already zooomed)
+        #Part 2: will be in a different method, but need to store any modified boxes in Frames at the original scale, not zoomed
         if id in self.boxes:
             self.cvs_image.coords(self.boxes[id], box['x1'], box['y1'], box['x2'], box['y2'])
         else:
@@ -1076,11 +1167,16 @@ class Annotator():
 
     def loadNewFrame(self):
         # new image
-        if self.displayedImage is None:
-            self.displayedImage = self.cvs_image.create_image(0, 0, anchor="nw", image=self.curr.img)
-        else:
-            self.cvs_image.itemconfig(self.displayedImage, image=self.curr.img)
-
+        self.image = self.curr.img
+        #self.photo = ImageTk.PhotoImage(self.image)
+        self.width, self.height = self.image.size
+        self.container = self.cvs_image.create_rectangle(0, 0, self.width, self.height, width=3)
+        self.show_image()
+        #if self.displayedImage is None:
+            #self.displayedImage = self.cvs_image.create_image(0, 0, anchor="nw", image=self.photo)
+        #else:
+            #self.cvs_image.itemconfig(self.displayedImage, image=self.photo)
+        
         # new frame number
         self.lbl_frameNum.config(text="Frame Number: " + str(self.curr.frameNum))
         shiftBar(self, self.curr.frameNum)

@@ -159,7 +159,8 @@ def frameToImage(self, freeze):
     rgb = cv2.cvtColor(freeze, cv2.COLOR_BGR2RGB)
     img = Image.fromarray(rgb)
     imgResized = img.resize((self.img_width, self.img_height), Image.NEAREST)
-    return ImageTk.PhotoImage(imgResized)
+    #return ImageTk.PhotoImage(imgResized)
+    return imgResized
 
 
 def periodicCall(self):
